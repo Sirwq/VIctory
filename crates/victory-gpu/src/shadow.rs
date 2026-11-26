@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
 
 use crate::host::{HostList, host};
+use crate::snapshot_pool::SNAPSHOT_POOL;
 use crate::watch::PAGE;
 
 fn merge_writeback(title: &mut [u8], host: &mut [u8], old: &[u8]) -> bool {
@@ -94,43 +95,6 @@ pub(crate) struct Shadow {
 
 /// Snapshot segments (offset, bytes) and the pieces compared.
 type Snapshot = (Vec<(usize, Vec<u8>)>, std::collections::HashSet<usize>);
-
-/// Snapshot memory kept for reuse (already touched, so no page faults).
-static POOL: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
-
-/// An empty buffer with room for `n` bytes, from the pool if it has one.
-fn pooled(n: usize) -> Vec<u8> {
-    let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
-    let fit = pool
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| v.capacity() >= n)
-        .min_by_key(|(_, v)| v.capacity())
-        .map(|(i, _)| i);
-    let mut v = match fit {
-        Some(i) => pool.swap_remove(i),
-        None => Vec::with_capacity(n),
-    };
-    v.clear();
-    v
-}
-
-/// Returns a snapshot buffer to the pool, which keeps the largest up to
-/// [`POOL_BYTES`] in all: a world submission snapshots several copies, and
-/// fresh buffers cost a page fault per 4 KiB touched (millions per frame).
-fn give_back(v: Vec<u8>) {
-    let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
-    pool.push(v);
-    pool.sort_by_key(|v| std::cmp::Reverse(v.capacity()));
-    let mut total = 0;
-    pool.retain(|v| {
-        total += v.capacity();
-        total <= POOL_BYTES
-    });
-}
-
-/// Snapshot memory kept for reuse.
-const POOL_BYTES: usize = 512 << 20;
 
 // SAFETY: D3D12 resources are free-threaded; `data` is a persistent mapping
 // written only on the submitting thread.
@@ -358,13 +322,13 @@ impl Shadow {
         #[cfg(feature = "diagnostics")]
         crate::copystat::snapshot(self.start, self.len, (end - start) as u64);
         // Parts newly covered from the copy, the rest as it was taken.
-        let mut grown = pooled(end - start);
+        let mut grown = SNAPSHOT_POOL.take(end - start);
         let mut at = start;
         for (taken, bytes) in segments.drain(first..last) {
             grown.extend_from_slice(host(at, taken));
             grown.extend_from_slice(&bytes);
             at = taken + bytes.len();
-            give_back(bytes);
+            SNAPSHOT_POOL.give_back(bytes);
         }
         grown.extend_from_slice(host(at, end));
         segments.insert(first, (start, grown));
@@ -468,7 +432,7 @@ impl Shadow {
         if pending.is_empty() {
             compared.clear();
             for (_, bytes) in segments.drain(..) {
-                give_back(bytes);
+                SNAPSHOT_POOL.give_back(bytes);
             }
             if let Some(t) = &self.tracked {
                 t.disarm();

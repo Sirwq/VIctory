@@ -86,6 +86,12 @@ cargo test --workspace                   # needs no game data
 cargo run -p victory -- config           # check your paths
 ```
 
+Victory keeps up to 512 MiB of completed GPU snapshot buffers in host memory
+for reuse. On a low-memory host, set `$env:VICTORY_GPU_SNAPSHOT_POOL_MIB = '128'` in PowerShell
+before launching Victory to lower that limit. Use `0` to disable reuse.
+Missing, invalid, or overflowing values use the default. The limit applies
+to idle buffers, so active snapshots can still use additional memory.
+
 Run the title:
 
 ```powershell
