@@ -1049,19 +1049,22 @@ impl Decoder {
             }
             // Quantisation step (16-bit samples: 90 * 16 >> 4).
             let mut quant_step = 90;
-            let mut step = b.signed(6);
+            let step = b.signed(6);
             quant_step += step;
             if step == -32 || step == 31 {
                 let negative = step == -32;
                 let mut quant = 0;
-                while b.pos + 5 < b.end {
-                    step = b.read(5) as i32;
-                    if step != 31 {
+                loop {
+                    let esc = b.read(5) as i32;
+                    if b.overread() {
+                        return Err(Error("quant step"));
+                    }
+                    quant += esc;
+                    if esc != 31 {
                         break;
                     }
-                    quant += 31;
                 }
-                quant_step += if negative { -(quant + step) } else { quant + step };
+                quant_step += if negative { -quant } else { quant };
             }
             if self.channels_for_cur_subframe == 1 {
                 self.ch[self.channel_indexes[0]].quant_step = quant_step;
@@ -1493,6 +1496,116 @@ mod tests {
     fn packet_rejects_out_of_range_indices_and_partial_headers() {
         assert!(packet(&[0; 4], usize::MAX / PACKET_BYTES + 1).is_none());
         assert!(packet(&[0; 3], 0).is_none());
+    }
+
+    /// Builds a mono 48 kHz frame of two 256-sample subframes: the first
+    /// decodes cleanly and sets `reuse_sf`, and the second reaches `quant_step`
+    /// with 6-bit signed `step` followed by `tail` (`(value, width)` pairs).
+    fn two_subframe_quant_step_frame(step: i32, tail: &[(u32, u32)]) -> (Vec<u8>, usize) {
+        let mut data = vec![0u8; 64];
+        let mut pos = LENGTH_BITS as usize;
+        let mut push = |n: u32, value: u32| {
+            put_bits(&mut data, pos, n, value);
+            pos += n as usize;
+        };
+
+        // Tile header: fixed = 1, two 256-sample subframes (shift 1 -> `10`).
+        push(1, 1);
+        push(2, 0b10);
+        push(2, 0b10);
+        // DRC gain (8 bits), trim flag (0).
+        push(8, 0);
+        push(1, 0);
+
+        // Subframe 0: no fill (0), reserved (0), transmit_coefs (1),
+        // transmit_num_vec_coeffs (1) + 7-bit count 0, quant_step delta 0 (6 bits).
+        push(1, 0);
+        push(1, 0);
+        push(1, 1);
+        push(1, 1);
+        push(7, 0);
+        push(6, 0);
+        // Scale factors: step code 0 (2 bits), then `num_sfb[1]` zero deltas.
+        let decoder = Decoder::new(1, 48_000);
+        let codes = codes();
+        let &(sf_code, sf_len, _) = codes.scale.codes.iter().find(|&&(_, _, s)| s == 0).unwrap();
+        push(2, 0);
+        for _ in 0..decoder.num_sfb[1] {
+            push(sf_len as u32, sf_code >> (32 - sf_len));
+        }
+        // Coefficients: table 1, immediate EOB (symbol 1).
+        let &(eob_code, eob_len, _) = codes.coef[1]
+            .codes
+            .iter()
+            .find(|&&(_, _, s)| s == 1)
+            .unwrap();
+        push(1, 1);
+        push(eob_len as u32, eob_code >> (32 - eob_len));
+
+        // Subframe 1 (`cur_subframe == 1`, `reuse_sf == true`):
+        // no fill (0), reserved (0), transmit_coefs (1), transmit_num_vec_coeffs (0),
+        // 6-bit signed `step`, then `tail`.
+        push(1, 0);
+        push(1, 0);
+        push(1, 1);
+        push(1, 0);
+        push(6, (step as u32) & 0x3f);
+        for &(value, width) in tail {
+            push(width, value);
+        }
+
+        put_bits(&mut data, 0, LENGTH_BITS, pos as u32);
+        data.truncate(pos.div_ceil(8));
+        (data, pos)
+    }
+
+    #[test]
+    fn truncated_negative_quant_step_escape_returns_error() {
+        // Only 1 bit (`0`) after `step == -32`: cannot read a 5-bit escape code.
+        let (data, bits) = two_subframe_quant_step_frame(-32, &[(0, 1)]);
+        let mut decoder = Decoder::new(1, 48_000);
+        let mut pcm = Vec::new();
+        assert_eq!(
+            decoder.decode(&data, bits, &mut pcm),
+            Err(Error("quant step"))
+        );
+    }
+
+    #[test]
+    fn truncated_positive_quant_step_escape_after_31_returns_error() {
+        // One 5-bit `31` after `step == 31`, then only 1 bit (`0`): escape is unterminated.
+        let (data, bits) = two_subframe_quant_step_frame(31, &[(31, 5), (0, 1)]);
+        let mut decoder = Decoder::new(1, 48_000);
+        let mut pcm = Vec::new();
+        assert_eq!(
+            decoder.decode(&data, bits, &mut pcm),
+            Err(Error("quant step"))
+        );
+    }
+
+    #[test]
+    fn quant_step_escape_reads_exact_five_remaining_bits() {
+        // Exactly 5 bits remain (`b.pos + 5 == b.end`) with terminal value `5`:
+        // the escape must be consumed (`quant_step = 90 - 32 - 5 = 53`) and
+        // overread only afterward in `scale_factors`.
+        let (data, bits) = two_subframe_quant_step_frame(-32, &[(5, 5)]);
+        let mut decoder = Decoder::new(1, 48_000);
+        let mut pcm = Vec::new();
+        assert_eq!(
+            decoder.decode(&data, bits, &mut pcm),
+            Err(Error("subframe overread"))
+        );
+        assert_eq!(decoder.ch[0].quant_step, 53);
+
+        // Exactly 5 bits remain (`b.pos + 5 == b.end`) with non-terminal `31`:
+        // must fail as a truncated escape.
+        let (data, bits) = two_subframe_quant_step_frame(31, &[(31, 5)]);
+        let mut decoder = Decoder::new(1, 48_000);
+        pcm.clear();
+        assert_eq!(
+            decoder.decode(&data, bits, &mut pcm),
+            Err(Error("quant step"))
+        );
     }
 
     #[test]
