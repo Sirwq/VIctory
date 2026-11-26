@@ -213,8 +213,14 @@ impl Bits<'_> {
         if n == 0 {
             return 0;
         }
+        let n = if n > 32 {
+            self.pos = self.pos.saturating_add((n - 32) as usize);
+            32
+        } else {
+            n
+        };
         let v = self.peek32() >> (32 - n);
-        self.pos += n as usize;
+        self.pos = self.pos.saturating_add(n as usize);
         v
     }
 
@@ -223,7 +229,15 @@ impl Bits<'_> {
     }
 
     fn signed(&mut self, n: u32) -> i32 {
-        ((self.read(n) << (32 - n)) as i32) >> (32 - n)
+        if n == 0 {
+            return 0;
+        }
+        let v = self.read(n);
+        if n >= 32 {
+            return v as i32;
+        }
+        let shift = 32 - n;
+        ((v << shift) as i32) >> shift
     }
 
     fn consumed(&self) -> usize {
@@ -1187,6 +1201,41 @@ mod tests {
                 data[(pos + i) / 8] |= 1 << (7 - (pos + i) % 8);
             }
         }
+    }
+
+    /// Boundary bit widths (`0`, `32`, and `> 32`) on [`Bits::read`] and
+    /// [`Bits::signed`] must not trigger shift overflow or underflow.
+    #[test]
+    fn bits_boundary_widths_do_not_overflow() {
+        let data = [0x80, 0x00, 0x00, 0x01, 0xFF, 0x7F];
+        let mut b = Bits {
+            data: &data,
+            pos: 0,
+            end: data.len() * 8,
+        };
+        assert_eq!(b.read(0), 0);
+        assert_eq!(b.signed(0), 0);
+        assert_eq!(b.consumed(), 0);
+
+        assert_eq!(b.signed(32), i32::MIN + 1);
+        assert_eq!(b.consumed(), 32);
+
+        b.pos = 0;
+        assert_eq!(b.read(32), 0x8000_0001);
+        assert_eq!(b.consumed(), 32);
+
+        b.pos = 0;
+        assert_eq!(b.read(40), 0x0000_01FF);
+        assert_eq!(b.consumed(), 40);
+
+        b.pos = 0;
+        assert_eq!(b.signed(40), 0x0000_01FF);
+        assert_eq!(b.consumed(), 40);
+
+        b.pos = 0;
+        assert_eq!(b.signed(1), -1);
+        assert_eq!(b.signed(1), 0);
+        assert_eq!(b.consumed(), 2);
     }
 
     /// A damaged packet whose first frame says it is 0 bits long: finding
