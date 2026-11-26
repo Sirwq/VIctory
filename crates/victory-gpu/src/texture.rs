@@ -18,7 +18,7 @@
 //! 0 is uploaded (every mip and array slice), depth and stencil planes are
 //! not.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Graphics::Direct3D12::*;
 
@@ -714,6 +714,9 @@ thread_local! {
     static SCRATCH: std::cell::Cell<Vec<u8>> = const { std::cell::Cell::new(Vec::new()) };
 }
 
+const SCRATCH_CAP_ENV: &str = "VICTORY_TEXTURE_SCRATCH_MIB";
+const MIB: usize = 1 << 20;
+
 impl Scratch {
     /// The thread's buffer, at least `size` bytes.
     fn take(size: usize) -> Self {
@@ -727,9 +730,20 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        // The largest textures' buffers are not kept.
-        const KEEP: usize = 32 << 20;
-        if self.0.len() <= KEEP {
+        static CAP: OnceLock<Option<usize>> = OnceLock::new();
+        let cap = CAP.get_or_init(|| {
+            std::env::var(SCRATCH_CAP_ENV)
+                .ok()?
+                .parse::<usize>()
+                .ok()?
+                .checked_mul(MIB)
+        });
+        let keep = match *cap {
+            Some(cap) => cap != 0 && self.0.capacity() <= cap,
+            // Preserve the original length-based cutoff when no cap is configured.
+            None => self.0.len() <= 32 * MIB,
+        };
+        if keep {
             SCRATCH.set(std::mem::take(&mut self.0));
         }
     }
@@ -844,6 +858,89 @@ pub(crate) fn staging(resource: This, texture: &ID3D12Resource) -> Option<Arc<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scratch_reuses_and_discards_allocations() {
+        const EXPECT_CAP: &str = "VICTORY_TEST_TEXTURE_SCRATCH_EXPECTED_MIB";
+        if let Ok(expected) = std::env::var(EXPECT_CAP) {
+            let expected = expected.parse::<usize>().unwrap();
+            let mut small = Scratch::take(MIB);
+            small.0[0] = 0x5a;
+            let original = small.0.as_ptr();
+            drop(small);
+            let small = Scratch::take(MIB);
+            if expected == 0 {
+                assert_eq!(small.0[0], 0);
+            } else {
+                assert_eq!(small.0[0], 0x5a);
+                assert_eq!(small.0.as_ptr(), original);
+            }
+            drop(small);
+
+            // Starting empty makes capacity equal to the requested length.
+            drop(SCRATCH.take());
+            let boundary = Scratch::take(expected.max(1) * MIB);
+            let capacity = boundary.0.capacity();
+            drop(boundary);
+            assert_eq!(
+                SCRATCH.take().capacity(),
+                if expected == 0 { 0 } else { capacity }
+            );
+
+            drop(Scratch::take((expected + 1) * MIB));
+            assert_eq!(SCRATCH.take().capacity(), 0);
+
+            // Geometric growth can leave capacity over the cap despite a
+            // qualifying length. The unset behavior keeps this allocation.
+            if expected != 0 {
+                drop(Scratch::take((expected - 3) * MIB));
+                let grown = Scratch::take((expected - 1) * MIB);
+                let capacity = grown.0.capacity();
+                assert!(capacity > expected * MIB);
+                drop(grown);
+                assert_eq!(
+                    SCRATCH.take().capacity(),
+                    if expected == 32 { capacity } else { 0 }
+                );
+            }
+            return;
+        }
+
+        // Separate processes exercise the cached environment setting without
+        // modifying the test runner's environment.
+        let exe = std::env::current_exe().unwrap();
+        let overflow = usize::MAX.to_string();
+        for (value, expected) in [
+            (None, "32"),
+            (Some("8"), "8"),
+            (Some("0"), "0"),
+            (Some("invalid"), "32"),
+            (Some("-1"), "32"),
+            (Some(""), "32"),
+            (Some(overflow.as_str()), "32"),
+            (Some("999999999999999999999999"), "32"),
+        ] {
+            let mut command = std::process::Command::new(&exe);
+            command
+                .args([
+                    "--exact",
+                    "texture::tests::scratch_reuses_and_discards_allocations",
+                ])
+                .env(EXPECT_CAP, expected);
+            match value {
+                Some(value) => command.env(SCRATCH_CAP_ENV, value),
+                None => command.env_remove(SCRATCH_CAP_ENV),
+            };
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "setting {value:?}\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 
     #[test]
     fn subresource_len_stays_inside_staging_total() {

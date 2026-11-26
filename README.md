@@ -131,6 +131,14 @@ limits them. This scales the displayed image; it does not change the
 console render resolution or the swap-chain buffers. With the variable
 unset, window sizing is unchanged.
 
+Set `VICTORY_TEXTURE_SCRATCH_MIB=8` before launching to limit each thread's
+retained texture-read scratch allocation to 8 MiB. The value is a
+nonnegative integer in MiB, read once at first use. Zero disables retention.
+Unset or invalid values, including values too large to represent in bytes,
+keep the default behavior of reusing buffers up to 32 MiB in length. Texture
+reads can still allocate larger buffers temporarily. A lower limit can
+increase allocation and zero-fill time.
+
 Input: XInput pads. With none connected the keyboard is a pad while the
 title's window has focus:
 
