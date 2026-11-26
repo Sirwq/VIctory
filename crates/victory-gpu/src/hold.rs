@@ -2,7 +2,7 @@
 //!
 //! The console's lists wait on memory values (`Wait32BitValueX`,
 //! `Wait64BitValueX`) that lists on other queues write at their end
-//! (`Write32/64BitValueBottomOfPipeX`): Grand Theft Auto VI's four compute
+//! (`Write32/64BitValueBottomOfPipeX`): The TITLE's four compute
 //! queues start each list with a wait for the frame's value of a word that
 //! a graphics list writes, and some lists wait again after their first
 //! commands. Our submissions run to completion when the title makes them,

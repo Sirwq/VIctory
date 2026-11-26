@@ -1,6 +1,6 @@
 //! Depth textures the title also writes through unordered access (decision
 //! 0007, "One host texture per texture memory"). The console allows both
-//! uses of one texture (Grand Theft Auto VI's shadow-map copies and its
+//! uses of one texture (The TITLE's shadow-map copies and its
 //! material depth, written by compute and then tested as depth); the host
 //! does not: a depth-stencil resource takes no unordered access, in any
 //! format. Such a texture gets a writable twin, a colour texture per plane
@@ -187,7 +187,7 @@ fn make(console: u32, depth: &ID3D12Resource) -> Option<Twin> {
 
 /// Scratch buffers shared by the twins, one per power-of-two size: a
 /// buffer each held as much video memory as its twin's planes for good
-/// (about 325 MB for Grand Theft Auto VI's 315 twins in the menu).
+/// (about 325 MB for The TITLE's 315 twins in the menu).
 /// Sharing is safe: every copy through one ([`Twin::copy`]) starts in the
 /// common state and returns the buffer to it, so copies in one list are
 /// ordered by those transitions, and lists run one after another on the
@@ -568,7 +568,7 @@ fn compile() -> windows::core::Result<Converter> {
 mod tests {
     use super::*;
 
-    /// The material-depth frame of Grand Theft Auto VI: written through
+    /// The material-depth frame of The TITLE: written through
     /// unordered views, read as a shader resource in the same list, written
     /// again; read in the next list; tested as depth in a later one; the
     /// next frame writes it through unordered views again.

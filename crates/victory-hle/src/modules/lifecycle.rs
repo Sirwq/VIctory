@@ -191,8 +191,8 @@ pub extern "system" fn CreateWindowExA(
     hwnd
 }
 
-/// A console title sizes its window to its render target (Grand Theft
-/// Auto VI: 3840x2160 on a Series X), which can exceed the host's screen.
+/// A console title sizes its window to its render target (The TITLE:
+/// 3840x2160 on a Series X), which can exceed the host's screen.
 /// A top-level window larger than the work area is shrunk to fit, keeping
 /// its proportions, and centred; what it shows is scaled to it (the swap
 /// chain stretches). `VICTORY_WINDOW_MAX=WIDTHxHEIGHT` applies a smaller
@@ -442,8 +442,8 @@ extern "system" fn window_proc(
     // Alt or F10 puts a window into menu mode: the system runs a modal menu
     // loop on the thread that owns the window, which is the title's. The
     // title then stops (no frames, no input) until a key ends the loop, and
-    // nothing shows it, since the window has no menu bar; Grand Theft Auto
-    // VI aborts itself about half a minute later. A console has no window
+    // nothing shows it, since the window has no menu bar; The TITLE
+    // aborts itself about half a minute later. A console has no window
     // menu. The mouse still opens it from the title bar.
     if message == wm::WM_SYSCOMMAND && wparam & 0xFFF0 == wm::SC_KEYMENU as usize {
         return 0;
@@ -518,7 +518,7 @@ pub(crate) fn end_title(why: &'static str, then: Box<dyn FnOnce() + Send>) {
 
 /// Runs the constrained-change routines (constrained), then the suspend
 /// routines (quiesced), as the console does when it suspends a title.
-/// Grand Theft Auto VI's suspend routine waits for a state that only its
+/// The TITLE's suspend routine waits for a state that only its
 /// constrained routine brings about; called alone it never returns.
 fn constrain_then_suspend(constrain: &[Registration], suspend: &[Registration]) {
     for &(_, routine, context) in constrain.iter().chain(suspend) {
