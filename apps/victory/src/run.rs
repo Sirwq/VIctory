@@ -138,7 +138,7 @@ pub fn run(
         );
         println!("missing dlls   {message}");
         // None of their imports can be bound, so the title stops at its first
-        // call into one (Grand Theft Auto VI 1.0.2.1 at +0x2237178 during
+        // call into one (The TITLE 1.0.2.1 at +0x2237178 during
         // System Init, #930) with nothing saying why. Stubs only if asked for.
         if execute && matches!(unimplemented, Unimplemented::Trap) {
             anyhow::bail!(
@@ -279,7 +279,7 @@ fn watch(base: usize, size: usize) {
 
 /// Debugging aid: `VICTORY_POKE=<rva>:<byte>,...` (hex) writes the byte at
 /// each title+rva twice a second. A title that ends itself when its main
-/// loop has not ticked for a while (Grand Theft Auto VI: 30 s) runs on
+/// loop has not ticked for a while (The TITLE: 30 s) runs on
 /// through slower frames with its tick flag poked. The address must be
 /// writable title data.
 #[cfg(all(windows, feature = "diagnostics"))]
@@ -331,7 +331,7 @@ fn absent_title_dlls(
 }
 
 /// Title DLLs the title loads itself (`LoadLibrary`) that nothing imports,
-/// e.g. Grand Theft Auto VI's upscaler behind its FidelityFX loader.
+/// e.g. The TITLE's upscaler behind its FidelityFX loader.
 #[cfg(windows)]
 struct LateDlls {
     host: victory_hle::HostPolicy,

@@ -42,7 +42,7 @@ title's), so a run finds them under the names it gives them itself.
 | `victory-shader` | Xbox shader containers → host shaders |
 | `victory-formats` | the GPU's texture layouts (sizes, tiling, detiling), BCPack, audio codecs |
 | `victory-pipeline` | converter trait, content-addressed cache |
-| `victory-game` | Grand Theft Auto VI-specific formats, build identities, hooks |
+| `victory-game` | The TITLE-specific formats, build identities, hooks |
 | `apps/victory` | command-line front end |
 | `xtask` | asset-policy check, git hooks |
 | `tests/fixtures/hle-probe` | a stand-in "title" (our own code) for loader tests |

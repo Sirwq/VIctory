@@ -1,5 +1,5 @@
-//! The host's FidelityFX through our entry points, called as Grand Theft
-//! Auto VI calls the console's: the title's descriptions, console objects,
+//! The host's FidelityFX through our entry points, called as The TITLE
+//! calls the console's: the title's descriptions, console objects,
 //! one upscaling of a flat colour, the output read back. Needs the PC build
 //! (`VICTORY_FIDELITYFX_DIR`) and a host GPU; skipped without them.
 #![cfg(windows)]

@@ -1,7 +1,7 @@
 //! The console's DirectStorage (`XCRDAPI.dll`): a factory that opens files
 //! and creates request queues and status arrays the title polls. Its
 //! interfaces have grown since 2020 (new interface ids, new slots); the
-//! slots here are the ones Grand Theft Auto VI calls, read from its call
+//! slots here are the ones The TITLE calls, read from its call
 //! sites. Slots nobody has needed yet log their offset.
 //!
 //! Submitted requests of every queue run on one pool of workers, as the
@@ -31,7 +31,7 @@ use super::xasync::{E_INVALIDARG, E_NOTIMPL, E_PENDING};
 use super::xgameruntime::{Guid, HRESULT, Methods, Object, S_OK, add_ref, missing, put};
 use crate::{HleModule, hle_export};
 
-/// The factory interface Grand Theft Auto VI asks for.
+/// The factory interface The TITLE asks for.
 const FACTORY: Guid = Guid::new(
     0x6295_9d11,
     0xd45f,
@@ -171,7 +171,7 @@ extern "system" fn create_status_array(
 }
 
 /// The queue's description: as in 2020 (source type, capacity, priority,
-/// name), plus a field Grand Theft Auto VI sets to 1.
+/// name), plus a field The TITLE sets to 1.
 #[repr(C)]
 struct QueueDesc {
     source_type: u64,
@@ -216,7 +216,7 @@ extern "system" fn create_queue(
     )
 }
 
-/// Grand Theft Auto VI asks for 32 MiB and stops if this fails.
+/// The TITLE asks for 32 MiB and stops if this fails.
 extern "system" fn set_staging_buffer_size(_: Factory, size: u32) -> HRESULT {
     tracing::info!(size, "dstorage: staging buffer size");
     if let Some(scheduler) = scheduler() {
@@ -291,7 +291,7 @@ extern "system" fn status_result(this: Array, index: u32) -> HRESULT {
         .map_or(E_INVALIDARG, |e| e.load(Ordering::Acquire))
 }
 
-/// Grand Theft Auto VI polls this (entry 0, a `Sleep(1)` loop) and never
+/// The TITLE polls this (entry 0, a `Sleep(1)` loop) and never
 /// reads the result itself.
 extern "system" fn is_complete(this: Array, index: u32) -> bool {
     status_result(this, index) != E_PENDING
@@ -561,7 +561,7 @@ impl Lanes {
     /// As [`Lanes::submit`]; `explicit` false when a half-full queue submits
     /// itself, which leaves reads into physical pages for the title's
     /// Submit: their page lists point into the title's page table, which
-    /// Grand Theft Auto VI fills for the batch in its own submit path, right
+    /// The TITLE fills for the batch in its own submit path, right
     /// before Submit (`sub_1400e88f0`), so until then they name no page or a
     /// page that now holds something else. A status entry behind a held
     /// read waits with it.
@@ -708,7 +708,7 @@ struct Request {
     source_size: u32,
     /// Compressed size between two decompression stages; unused here.
     intermediate_size: u32,
-    /// Matched by cancellation; Grand Theft Auto VI leaves it 0.
+    /// Matched by cancellation; The TITLE leaves it 0.
     tag: u64,
     name: *const c_char,
 }
@@ -721,7 +721,7 @@ const BCPACK: u64 = 0xf << 1;
 const PAGE_DESTINATION: u64 = 1 << 21;
 const MEMORY_SOURCE: u64 = 1 << 22;
 // Bits 5-20 select a further transform, bit 23 a source in physical pages;
-// Grand Theft Auto VI's packages need neither, so requests with them fail.
+// The TITLE's packages need neither, so requests with them fail.
 
 const PAGE: usize = 64 * 1024;
 
@@ -840,7 +840,7 @@ extern "system" fn submit(this: QueueRef) {
 
 /// Ends the queue whatever its reference count: what was not started never
 /// completes, and this returns once the reads already running have
-/// finished. Grand Theft Auto VI calls this, not `Release`.
+/// finished. The TITLE calls this, not `Release`.
 extern "system" fn close(this: QueueRef) {
     // SAFETY: as above.
     close_lane(unsafe { &*this }.state.id);
@@ -1094,8 +1094,8 @@ const LATE_LIST_TRIES: u32 = 8;
 /// Page lists filled after their request started (written late).
 static LATE_LISTS: AtomicU32 = AtomicU32::new(0);
 
-/// Slots by the 2020 order, which the argument shapes at Grand Theft Auto
-/// VI's call sites match (0x18, 0x20, 0x30 and 0x40 are called).
+/// Slots by the 2020 order, which the argument shapes at The TITLE's call
+/// sites match (0x18, 0x20, 0x30 and 0x40 are called).
 static QUEUE_VTABLE: Methods<12> = Methods([
     missing::<0> as *const (),
     add_ref_instance::<Queue> as *const (),
